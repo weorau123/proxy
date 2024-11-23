@@ -1,12 +1,10 @@
 #!/bin/bash
-
 random() {
     tr </dev/urandom -dc A-Za-z0-9 | head -c5
     echo
 }
 
 array=(1 2 3 4 5 6 7 8 9 0 a b c d e f)
-
 gen64() {
     ip64() {
         echo "${array[$RANDOM % 16]}${array[$RANDOM % 16]}${array[$RANDOM % 16]}${array[$RANDOM % 16]}"
@@ -15,16 +13,17 @@ gen64() {
 }
 
 install_3proxy() {
-    echo "Installing 3proxy"
-    URL="https://raw.githubusercontent.com/ngochoaitn/multi_proxy_ipv6/main/3proxy-3proxy-0.8.6.tar.gz"
-    wget -qO- $URL | tar -xvf-
+    URL="https://raw.githubusercontent.com/quayvlog/quayvlog/main/3proxy-3proxy-0.8.6.tar.gz"
+    wget -qO- $URL | bsdtar -xvf-
     cd 3proxy-3proxy-0.8.6
     make -f Makefile.Linux
-    mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
+    mkdir -p /usr/local/etc/3proxy/bin
+    mkdir -p /usr/local/etc/3proxy/logs
+    mkdir -p /usr/local/etc/3proxy/stat
     cp src/3proxy /usr/local/etc/3proxy/bin/
     cp ./scripts/rc.d/proxy.sh /etc/init.d/3proxy
     chmod +x /etc/init.d/3proxy
-    update-rc.d 3proxy defaults
+    chkconfig 3proxy on
     cd $WORKDIR
 }
 
@@ -54,6 +53,15 @@ $(awk -F "/" '{print $3 ":" $4 ":" $1 ":" $2 }' ${WORKDATA})
 EOF
 }
 
+upload_proxy() {
+    local PASS=$(random)
+    zip --password $PASS proxy.zip proxy.txt
+    URL=$(curl -s --upload-file proxy.zip https://transfer.sh/proxy.zip)
+    echo "Proxy is ready! Format IP:PORT:LOGIN:PASS"
+    echo "Download zip archive from: ${URL}"
+    echo "Password: ${PASS}"
+}
+
 gen_data() {
     seq $FIRST_PORT $LAST_PORT | while read port; do
         echo "usr$(random)/pass$(random)/$IP4/$port/$(gen64 $IP6)"
@@ -68,26 +76,22 @@ EOF
 
 gen_ifconfig() {
     cat <<EOF
-$(awk -F "/" '{print "ifconfig eth0 inet6 add " $5 "/64"}' ${WORKDATA})
+$(awk -F "/" '{print "ip -6 addr add " $5 "/64 dev eth0"}' ${WORKDATA})
 EOF
 }
 
-echo "Installing necessary packages"
-apt update && apt -y install gcc net-tools bsdtar zip iptables curl
+yum -y install gcc net-tools bsdtar zip >/dev/null
 
 install_3proxy
 
 WORKDIR="/home/proxy-installer"
 WORKDATA="${WORKDIR}/data.txt"
-mkdir -p $WORKDIR && cd $_
+mkdir $WORKDIR && cd $_
 
 IP4=$(curl -4 -s icanhazip.com)
 IP6=$(curl -6 -s icanhazip.com | cut -f1-4 -d':')
 
-echo "Internal IP = ${IP4}. External sub for IPv6 = ${IP6}"
-
-echo "How many proxies do you want to create? Example 500"
-read COUNT
+read -p "How many proxy do you want to create? Example 500: " COUNT
 
 FIRST_PORT=10000
 LAST_PORT=$(($FIRST_PORT + $COUNT))
@@ -106,8 +110,9 @@ ulimit -n 10048
 service 3proxy start
 EOF
 
+chmod +x /etc/rc.local
 bash /etc/rc.local
 
 gen_proxy_file_for_user
 
-echo "Proxies saved to proxy.txt file in the working directory."
+upload_proxy
